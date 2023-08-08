@@ -9,6 +9,7 @@
     "lint": "next lint",
     "typecheck": "tsc",
     "format": "prettier . --check",
+    "format:fix": "prettier . --write",
     "test": "jest --coverage",
     "test:e2e": "playwright test"
   },
