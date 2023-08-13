@@ -49,6 +49,7 @@ jobs:
           path: playwright-report/
       - name: Send a Slack Message on Failure
         uses: slackapi/slack-github-action@v1.24.0
+        if: failure()
         with:
           payload-file-path: "./.github/slack/test-failure-slack-payload.json"
         env:
