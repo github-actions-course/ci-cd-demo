@@ -42,6 +42,8 @@ jobs:
         run: npx playwright install --with-deps
       - name: Run E2E Tests
         run: npm run test:e2e
+        env:
+          FLAGSMITH_KEY: ${{ secrets.FLAGSMITH_KEY }}
       - uses: actions/upload-artifact@v3
         if: always()
         with:
