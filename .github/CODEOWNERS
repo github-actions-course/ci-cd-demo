@@ -1,0 +1,5 @@
+* @alialaa
+*.js @alialaa
+*.ts @alialaa
+*.tsx @alialaa
+/e2e/ @alialaa17
