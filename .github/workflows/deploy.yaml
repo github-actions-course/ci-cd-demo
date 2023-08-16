@@ -34,6 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: ${{ inputs.github-env }}
+      url: "http://${{ steps.get-env-cname.outputs.aws_env_cname }}"
     steps:
       - name: Avoid deploying to production using a non production env
         if: inputs.aws-env == vars.AWS_EB_PRODUCTION_ENV && inputs.github-env != 'production'
@@ -62,4 +63,44 @@ jobs:
           path: ~/.cache/pip
           key: ${{runner.os}}-pip
       - name: Install EB CLI
+        id: install-eb-cli
         run: pip install awsebcli
+      - name: Get AWS ENV Name
+        id: get-env-name
+        run: echo "aws_env=$(aws elasticbeanstalk describe-environments --application-name ${{vars.AWS_EB_APP_NAME}} --environment-names ${{ inputs.aws-env}} --query "Environments[0].EnvironmentName" --output text)" >> $GITHUB_OUTPUT
+      - name: Get AWS ENV Status
+        id: get-env-status
+        run: echo "aws_env_status=$(aws elasticbeanstalk describe-environments --application-name ${{vars.AWS_EB_APP_NAME}} --environment-names ${{ inputs.aws-env}} --query "Environments[0].Status" --output text)" >> $GITHUB_OUTPUT
+      - name: Initialize EB
+        run: eb init ${{vars.AWS_EB_APP_NAME}} --platform ${{vars.AWS_EB_PLATFORM}} --region ${{vars.AWS_REGION}}
+      - name: Create a New Environment
+        if: steps.get-env-name.outputs.aws_env == 'None' || steps.get-env-status.outputs.aws_env_status == 'Terminated'
+        run: eb create ${{ inputs.aws-env }} --instance-types ${{vars.AWS_EB_ENV_INSTANCE_TYPES}} --cname ${{ inputs.aws-env }} --envvars FLAGSMITH_KEY=${{ secrets.FLAGSMITH_KEY }}
+      - name: Deploy if Environment Exists
+        if: steps.get-env-name.outputs.aws_env == inputs.aws-env && steps.get-env-status.outputs.aws_env_status != 'Terminated'
+        run: eb deploy ${{ inputs.aws-env }}
+      - name: Get AWS ENV CNAME
+        id: get-env-cname
+        run: echo "aws_env_cname=$(aws elasticbeanstalk describe-environments --application-name ${{vars.AWS_EB_APP_NAME}} --environment-names ${{ inputs.aws-env}} --query "Environments[0].CNAME" --output text)" >> $GITHUB_OUTPUT
+      - name: Notify on Slack
+        uses: slackapi/slack-github-action@v1
+        continue-on-error: true
+        with:
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "🚀 Deployment to AWS environment *${{inputs.aws-env}}* using *${{ inputs.github-env }}* GitHub wnvironment  was successfull. <http://${{ steps.get-env-cname.outputs.aws_env_cname }}|View Deployment>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+      - name: Abort if Cancelled
+        if: cancelled() && steps.install-eb-cli.conclusion == 'success'
+        run: eb abort ${{ inputs.aws-env }}
