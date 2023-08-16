@@ -1,0 +1,65 @@
+name: Deploy
+on:
+  workflow_dispatch:
+    inputs:
+      aws-env:
+        description: "AWS Elastic Beanstalk Environment"
+        required: true
+        default: "gha-course-staging"
+        type: string
+      github-env:
+        description: "Github Environment"
+        required: true
+        default: "staging"
+        type: string
+  workflow_call:
+    inputs:
+      aws-env:
+        description: "AWS Elastic Beanstalk Environment"
+        required: true
+        default: "gha-course-staging"
+        type: string
+      github-env:
+        description: "Github Environment"
+        required: true
+        default: "staging"
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.aws-env }}-${{ inputs.github-env }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.github-env }}
+    steps:
+      - name: Avoid deploying to production using a non production env
+        if: inputs.aws-env == vars.AWS_EB_PRODUCTION_ENV && inputs.github-env != 'production'
+        run: |
+          echo "::error::Cannot deploy to production using a non prodcuction environment"
+          exit 1
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{secrets.AWS_ACCESS_KEY_ID}}
+          aws-secret-access-key: ${{secrets.AWS_SECRET_ACCESS_KEY}}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Setup Node Environment
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: "npm"
+      - name: Install Dependencies
+        run: npm ci
+      - name: Build App
+        run: npm run build
+      - uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{runner.os}}-pip
+      - name: Install EB CLI
+        run: pip install awsebcli
