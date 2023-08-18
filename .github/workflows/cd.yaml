@@ -1,0 +1,92 @@
+name: CD
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{github.workflow}}-${{github.ref}}
+  cancel-in-progress: true
+
+jobs:
+  create-version-pr-or-release:
+    runs-on: ubuntu-latest
+    outputs:
+      should-deploy: ${{steps.changesets.outputs.hasChangesets == 'false'}}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Setup Node Environment
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: "npm"
+      - name: Install Dependencies
+        run: npm ci
+      - name: Create Version PR or Github Release
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          publish: npx changeset tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.CHANGESETS_TOKEN }}
+      - run: echo '${{ toJson(steps.changesets.outputs)}}'
+      - name: Send a Slack Message for Version PR Updates
+        if: steps.changesets.outputs.pullRequestNumber
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "✅ *<https://github.com/${{github.repository}}/pull/${{ steps.changesets.outputs.pullRequestNumber }}|Version Pull Request>* was updated. Review it and merge it to create a new release and deployment."
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+      - name: Set Release Version
+        id: get-version
+        run: echo "version=${{ fromJson(steps.changesets.outputs.publishedPackages)[0].version }}" >> $GITHUB_OUTPUT
+      - name: Send a Slack Message when a New Release is Created
+        if: steps.changesets.outputs.published == 'true'
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "⏳ *<https://github.com/${{github.repository}}/releases/tag/v${{ steps.get-version.outputs.version }}|Version ${{ steps.get-version.outputs.version }}>* Released! Deployment should be in progress."
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+  run-tests:
+    needs: create-version-pr-or-release
+    if: needs.create-version-pr-or-release.outputs.should-deploy == 'true'
+    uses: ./.github/workflows/test.yaml
+    secrets: inherit
+  deploy-to-staging:
+    needs: run-tests
+    uses: ./.github/workflows/deploy.yaml
+    secrets: inherit
+    with:
+      aws-env: ${{vars.AWS_EB_STAGING_ENV}}
+      github-env: "staging"
+  deploy-to-production:
+    needs: run-tests
+    uses: ./.github/workflows/deploy.yaml
+    secrets: inherit
+    with:
+      aws-env: ${{vars.AWS_EB_PRODUCTION_ENV}}
+      github-env: "production"
