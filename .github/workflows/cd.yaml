@@ -50,6 +50,7 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
       - name: Set Release Version
+        if: steps.changesets.outputs.published == 'true'
         id: get-version
         run: echo "version=${{ fromJson(steps.changesets.outputs.publishedPackages)[0].version }}" >> $GITHUB_OUTPUT
       - name: Send a Slack Message when a New Release is Created
