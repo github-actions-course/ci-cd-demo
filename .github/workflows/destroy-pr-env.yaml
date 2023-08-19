@@ -1,0 +1,122 @@
+name: Destroy PR Environment
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [closed]
+
+jobs:
+  destroy-pr-env:
+    if: (github.event.issue.pull_request && github.event.issue.state == 'open' && github.event.comment.body == '/destroy') || github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    permissions:
+      deployments: write
+      pull-requests: write
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip
+      - name: Install EB CLI
+        id: install-eb-cli
+        run: pip install awsebcli
+
+      - name: Initialize EB
+        run: eb init ${{vars.AWS_EB_APP_NAME}} --platform "${{vars.AWS_EB_PLATFORM}}" --region ${{vars.AWS_REGION}}
+
+      - name: Get AWS ENV Name
+        id: get-env-name
+        run: echo "aws_env=$(aws elasticbeanstalk describe-environments --application-name ${{vars.AWS_EB_APP_NAME}} --environment-names github-actions-course-demo-pr-${{ github.event.issue.number || github.event.pull_request.number }} --query "Environments[0].EnvironmentName" --output text)" >> $GITHUB_OUTPUT
+
+      - name: Get AWS ENV Status
+        id: get-env-status
+        run: echo "aws_env_status=$(aws elasticbeanstalk describe-environments --application-name ${{vars.AWS_EB_APP_NAME}} --environment-names github-actions-course-demo-pr-${{ github.event.issue.number || github.event.pull_request.number }} --query "Environments[0].Status" --output text)" >> $GITHUB_OUTPUT
+
+      - name: Decide if Environment Needs to be Terminated
+        id: check-env
+        run: echo "should_terminate=${{  steps.get-env-name.outputs.aws_env != 'None' && steps.get-env-status.outputs.aws_env_status != 'Terminated' }}" >> $GITHUB_OUTPUT
+
+      - name: Destroy Environment
+        if: steps.check-env.outputs.should_terminate == 'true'
+        run: eb terminate ${{ steps.get-env-name.outputs.aws_env }} --force
+
+      - name: Get Pull Request Head Ref
+        if: github.event_name == 'issue_comment' && steps.check-env.outputs.should_terminate == 'true'
+        id: get-head-ref
+        uses: actions/github-script@v6
+        with:
+          result-encoding: string
+          script: |
+            const response = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number
+            });
+            return response.data.head.ref
+
+      - name: Get deployment ID
+        if: steps.check-env.outputs.should_terminate == 'true'
+        uses: actions/github-script@v6
+        id: get-latest-deployment
+        with:
+          result-encoding: string
+          script: |
+            const response = await github.rest.repos.listDeployments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: "${{ github.event.pull_request.head.ref || steps.get-head-ref.outputs.result  }}",
+              per_page: 1
+            });
+            return response.data.length > 0 ? response.data[0].id : ""
+
+      - name: Add Inactive Status
+        if: steps.get-latest-deployment.outputs.result != '' && steps.check-env.outputs.should_terminate == 'true'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const response = await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: ${{ steps.get-latest-deployment.outputs.result }},
+              state: 'inactive',
+            });
+            console.log(response)
+
+      - name: Update Pull Request (Failure)
+        uses: actions/github-script@v6
+        if: failure() && steps.check-env.outputs.should_terminate == 'true'
+        continue-on-error: true
+        with:
+          script: |
+            const comment = `### 🛑 Environment Termination Failed.
+
+            [View Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ github.event.issue.number || github.event.pull_request.number }},
+              body: comment
+            })
+
+      - name: Update Pull Request (Success)
+        uses: actions/github-script@v6
+        if: success() && steps.check-env.outputs.should_terminate == 'true'
+        continue-on-error: true
+        with:
+          script: |
+            const comment = `### ✅ Environment Terminated Successfully.`
+
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ github.event.issue.number || github.event.pull_request.number }},
+              body: comment
+            })
