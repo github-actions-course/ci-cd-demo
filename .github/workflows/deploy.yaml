@@ -93,6 +93,8 @@ jobs:
         with:
           node-version: 18
           cache: "npm"
+      - name: Remove Husky
+        run: npm pkg delete scripts.prepare
       - name: Install Dependencies
         run: npm ci
       - name: Build App
