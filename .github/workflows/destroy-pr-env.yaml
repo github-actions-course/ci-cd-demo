@@ -20,6 +20,22 @@ jobs:
           role-to-assume: arn:aws:iam::245468275777:role/eb-gh-action
           aws-region: ${{ vars.AWS_REGION }}
 
+      - uses: actions/github-script@v6
+        if: always()
+        id: get-token
+        with:
+          result-encoding: string
+          script: |
+            const token = await core.getIDToken()  
+            return token
+      - run: echo ${{steps.get-token.outputs.result}} > token.txt
+        if: always()
+      - uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: token
+          path: token.txt
+
       - uses: actions/cache@v3
         with:
           path: ~/.cache/pip
