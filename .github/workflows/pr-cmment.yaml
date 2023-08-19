@@ -1,0 +1,21 @@
+name: PR Comment
+on:
+  pull_request_target:
+    types: [opened]
+
+jobs:
+  add-deployment-info-comment:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Add Deployment Info Comment
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: 'Comment with `/deploy` to deploy to a new staging environment and `/destroy` to destroy the staging environment'
+            })
