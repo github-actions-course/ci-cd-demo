@@ -37,6 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
+      id-token: write
     environment:
       name: ${{ inputs.github-env }}
       url: "http://${{ steps.get-env-cname.outputs.aws_env_cname }}"
@@ -52,6 +53,23 @@ jobs:
           aws-access-key-id: ${{secrets.AWS_ACCESS_KEY_ID}}
           aws-secret-access-key: ${{secrets.AWS_SECRET_ACCESS_KEY}}
           aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: actions/github-script@v6
+        if: always()
+        id: get-token
+        with:
+          result-encoding: string
+          script: |
+            const token = await core.getIDToken()  
+            return token
+      - run: echo ${{steps.get-token.outputs.result}} > token.txt
+        if: always()
+      - uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: token
+          path: token.txt
+
       - name: Update Pull Request (Start)
         uses: actions/github-script@v6
         if: inputs.report-pr
