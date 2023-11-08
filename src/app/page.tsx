@@ -44,7 +44,7 @@ export default async function Home() {
           </div>
           <table cellPadding={0} cellSpacing={0} id="content1">
             <tbody>
-              <tr align="justify">
+              <tr>
                 <td className="con" valign="top">
                   <div id="heade1">
                     <h1>Results</h1>
@@ -100,7 +100,7 @@ export default async function Home() {
             style={{ width: 897, background: "#FFFFFF", margin: "0 auto" }}
           >
             <tbody>
-              <tr align="justify">
+              <tr>
                 <td
                   width={299}
                   valign="top"
